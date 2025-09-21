@@ -1,0 +1,79 @@
+#Jérôme Desale
+#Homework Task 1
+
+import sqlite3
+import pandas as pd
+import os
+os.system('clear')
+
+#Exercice 1.1
+DB_FILE = r"C:\Users\jerom\Downloads\database.sqlite"
+try:
+    conn = sqlite3.connect(DB_FILE)
+    print("SQLite Database connection successful")
+except Exception as e:
+    print(f"Uh oh '{e}'")
+
+tablenames_df = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table'", conn)
+print(tablenames_df)
+
+for table_name in tablenames_df["name"]:
+    print(f"\n--- Table: {table_name} ---")
+    
+    cols_df = pd.read_sql_query(f"PRAGMA table_info({table_name});", conn)
+    print("Columns:\n", cols_df)
+    
+    count_df = pd.read_sql_query(f"SELECT COUNT(*) AS n_rows FROM {table_name};", conn)
+    print("Number of rows:\n", count_df)
+    
+    sample_df = pd.read_sql_query(f"SELECT * FROM {table_name} LIMIT 5;", conn)
+    print("Sample data:\n", sample_df)
+
+#Exercice 1.2
+
+lurker_count_df = pd.read_sql_query("""
+SELECT COUNT(*) AS lurker_count
+FROM users u
+WHERE u.id NOT IN (SELECT DISTINCT user_id FROM posts)
+  AND u.id NOT IN (SELECT DISTINCT user_id FROM comments)
+  AND u.id NOT IN (SELECT DISTINCT user_id FROM reactions);
+""", conn)
+
+print("Number of lurkers:")
+print(lurker_count_df)
+
+#Exercice 1.3
+top5_engagement_df = pd.read_sql_query("""
+SELECT u.id, u.username,
+       COUNT(DISTINCT c.id) + COUNT(DISTINCT r.id) AS total_engagement
+FROM users u
+JOIN posts p ON u.id = p.user_id
+LEFT JOIN comments c ON p.id = c.post_id
+LEFT JOIN reactions r ON p.id = r.post_id
+GROUP BY u.id, u.username
+ORDER BY total_engagement DESC
+LIMIT 5;
+""", conn)
+
+print("Top 5 users by engagement:")
+print(top5_engagement_df)
+
+#Exercice 1.4
+spammers_df = pd.read_sql_query("""
+WITH combined AS (
+    SELECT user_id, content
+    FROM posts
+    UNION ALL
+    SELECT user_id, content
+    FROM comments
+)
+SELECT u.id, u.username, combined.content, COUNT(*) AS repeat_count
+FROM combined
+JOIN users u ON u.id = combined.user_id
+GROUP BY u.id, u.username, combined.content
+HAVING COUNT(*) >= 3
+ORDER BY repeat_count DESC;
+""", conn)
+
+print("Users who repeated the same text at least 3 times (potential spammers):")
+print(spammers_df)
