@@ -77,3 +77,129 @@ ORDER BY repeat_count DESC;
 
 print("Users who repeated the same text at least 3 times (potential spammers):")
 print(spammers_df)
+
+#Homework Task 2
+#Jérôme Desale
+
+import sqlite3
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+os.system('clear')
+
+DB_FILE = "database.sqlite"
+
+DB_FILE = r"C:\Users\jerom\Downloads\database.sqlite"
+try:
+    conn = sqlite3.connect(DB_FILE)
+    print("SQLite Database connection successful")
+except Exception as e:
+    print(f"Uh oh '{e}'")
+
+#Exercise 2.1
+query = """
+SELECT strftime('%Y', created_at) AS year, COUNT(*) AS post_count
+FROM posts
+GROUP BY year
+ORDER BY year;
+"""
+df = pd.read_sql(query, conn)
+
+df["year"] = df["year"].astype(int)
+
+coeffs = np.polyfit(df["year"], df["post_count"], 1) 
+trend = np.poly1d(coeffs)
+
+future_years = np.arange(df["year"].max() + 1, df["year"].max() + 4)
+future_preds = trend(future_years)
+
+current_posts = df["post_count"].iloc[-1]
+current_servers = 16
+servers_per_post = current_servers / current_posts
+
+future_servers = (future_preds * servers_per_post).round()
+
+future_servers_with_redundancy = (future_servers * 1.2).round()
+
+for year, posts, servers in zip(future_years, future_preds, future_servers_with_redundancy):
+    print(f"Year {year}: ~{int(posts)} posts → {int(servers)} servers (with redundancy)")
+
+plt.figure(figsize=(8,5))
+plt.scatter(df["year"], df["post_count"], label="Historical data")
+plt.plot(df["year"], trend(df["year"]), color="blue", label="Trend")
+plt.plot(future_years, future_preds, color="red", linestyle="--", label="Forecast")
+plt.xlabel("Year")
+plt.ylabel("Number of posts")
+plt.title("Post Growth Trend & Forecast")
+plt.legend()
+plt.show()
+
+#Exercise 2.2
+
+viral_posts_df = pd.read_sql_query("""
+SELECT p.id AS post_id,
+       u.username,
+       COUNT(DISTINCT c.id) AS n_comments,
+       COUNT(DISTINCT r.id) AS n_reactions,
+       (COUNT(DISTINCT c.id) + COUNT(DISTINCT r.id)) AS total_engagement
+FROM posts p
+JOIN users u ON p.user_id = u.id
+LEFT JOIN comments c ON p.id = c.post_id
+LEFT JOIN reactions r ON p.id = r.post_id
+GROUP BY p.id, u.username
+ORDER BY total_engagement DESC
+LIMIT 3;
+""", conn)
+
+print("the 3 most viral posts in the history of the platform:")
+print(viral_posts_df)
+
+#Exercise 2.3
+
+content_lifecycle_df = pd.read_sql_query("""
+WITH engagements AS (
+    SELECT post_id, 
+           MIN(created_at) AS first_engagement, 
+           MAX(created_at) AS last_engagement
+    FROM comments
+    GROUP BY post_id
+)
+SELECT 
+    AVG(julianday(first_engagement) - julianday(p.created_at)) AS avg_time_to_first_engagement,
+    AVG(julianday(last_engagement) - julianday(p.created_at)) AS avg_time_to_last_engagement
+FROM posts p
+JOIN engagements e ON p.id = e.post_id;
+""", conn)
+
+print(content_lifecycle_df)
+
+#Exercise 2.4
+connection_df = pd.read_sql_query("""
+WITH interactions AS (
+    -- Comments as engagement
+    SELECT c.user_id AS engager, p.user_id AS author
+    FROM comments c
+    JOIN posts p ON c.post_id = p.id
+    UNION ALL
+    -- Reactions as engagement
+    SELECT r.user_id AS engager, p.user_id AS author
+    FROM reactions r
+    JOIN posts p ON r.post_id = p.id
+),
+pairwise AS (
+    SELECT 
+        CASE WHEN engager < author THEN engager ELSE author END AS user_a,
+        CASE WHEN engager < author THEN author ELSE engager END AS user_b,
+        COUNT(*) AS engagement_count
+    FROM interactions
+    WHERE engager != author
+    GROUP BY user_a, user_b
+)
+SELECT user_a, user_b, engagement_count
+FROM pairwise
+ORDER BY engagement_count DESC
+LIMIT 3;
+
+""",conn)
+print(connection_df)
