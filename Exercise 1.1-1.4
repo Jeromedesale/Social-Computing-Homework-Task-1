@@ -203,3 +203,81 @@ LIMIT 3;
 
 """,conn)
 print(connection_df)
+
+
+# Task 3
+#Exercise 3.1
+import re
+from typing import Tuple
+
+URL_RE = re.compile(r"(https?://[^\s]+|www\.[^\s]+)", re.IGNORECASE)
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", re.IGNORECASE)
+PHONE_RE = re.compile(r"(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{2,4}\)?[\s.-]?){2,4}\d{2,4}")
+
+def _mask_word_exact(match: re.Match) -> str:
+    s = match.group(0)
+    return "*" * len(s)
+
+def moderate_content(content: str) -> Tuple[str, float]:
+    if not content:
+        return "", 0.0
+
+    text = content
+
+    for w in TIER1_WORDS:
+        if not w:
+            continue
+        pat = re.compile(rf"\b{re.escape(w)}\b", re.IGNORECASE)
+        if pat.search(text):
+            return "[content removed due to severe violation]", 5.0
+
+    for phrase in TIER2_PHRASES:
+        if not phrase:
+            continue
+        pat = re.compile(re.escape(phrase), re.IGNORECASE)
+        if pat.search(text):
+            return "[content removed due to spam/scam policy]", 5.0
+
+    score = 0.0
+
+    for w in TIER3_WORDS:
+        if not w:
+            continue
+        pat = re.compile(rf"\b{re.escape(w)}\b", re.IGNORECASE)
+        matches = list(pat.finditer(text))
+        if matches:
+            score += 2.0 * len(matches)
+            text = pat.sub(lambda m: "*" * len(m.group(0)), text)
+
+    url_matches = list(URL_RE.finditer(text))
+    if url_matches:
+        score += 2.0 * len(url_matches)
+        text = URL_RE.sub("[link removed]", text)
+
+    letters = [ch for ch in content if ch.isalpha()]
+    if len(letters) > 15:
+        upper = sum(1 for ch in letters if ch.isupper())
+        if upper / len(letters) > 0.70:
+            score += 0.5
+
+    # Extra measure
+    # Emails
+    email_hits = list(EMAIL_RE.finditer(text))
+    if email_hits:
+        score += 1.0 * len(email_hits)
+        text = EMAIL_RE.sub("[email removed]", text)
+
+    # Phones
+    def _phone_sub(m: re.Match) -> str:
+        digits = re.sub(r"\D", "", m.group(0))
+        return "[phone removed]" if len(digits) >= 7 else m.group(0)
+
+    before = text
+    text = PHONE_RE.sub(_phone_sub, text)
+
+    if text != before:
+        phone_count = text.count("[phone removed]")
+        if phone_count > 0:
+            score += 1.0 * phone_count
+
+    return text, float(score)
